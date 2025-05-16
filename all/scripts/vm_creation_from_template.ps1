@@ -20,7 +20,9 @@ try {
     # 
     # This script uses the following: Name,Template,Host,Datastore,vCPU,Memory,Network,Datacenter
     #
-    $vms = Import-CSV "./vm_config.csv"
+    # Data example ([Win_Test],[Windows_Template],192.168.0.13,Datastore1,4,2,WIN_LAN,Datacenter1)
+    #
+    $vms = Import-CSV "../config/vm_config.csv"
 
 }
 catch{

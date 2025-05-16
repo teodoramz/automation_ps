@@ -1,11 +1,32 @@
 ##
 #
-#   FOR WINDOWS VMs
+#   FOR LINUX VMs
 #   
 #
 #   Update network configuration and changing the computer hostname
 #
 ##
+
+
+#
+# example of config (cmd line)
+#
+# network config (ip, gateway, dns)
+# echo "1234" | sudo -S netplan set ethernets.ens33.addresses=[192.168.150.170/24]
+# echo "1234" | sudo -S netplan set ethernets.ens33.gateway4=192.168.150.2
+# echo "1234"| sudo -S netplan set ethernets.ens33.nameservers.addresses=[192.168.150.2,8.8.8.8] # at least one dns
+
+# # apply the changes
+# echo "1234" | sudo -S netplan apply
+
+# # new hostname
+# echo "1234" | sudo -S hostnamectl set-hostname "smthelse"
+
+# # optional (to be sure)
+# echo "1234" | sudo -S systemctl restart NetworkManager
+
+# # system reboot to make sure that changes are applied
+# echo "1234" | sudo -S reboot
 
 
 # Not carring about tls verification
@@ -29,7 +50,7 @@ try {
     # 
     # This script uses the following: Name,EthernetInterface,NewIP,SubnetMask,Gateway,PrimaryDNS,SecondaryDNS,AdministratorAccount,Password,NewHostname
     #
-    $vms = Import-CSV "./vm_network_config.csv"
+    $vms = Import-CSV "../config/vm_network_config.csv"
 
 }
 catch{
@@ -61,19 +82,30 @@ foreach ($vm in $vms) {
         $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
         $cred = New-Object System.Management.Automation.PSCredential ($adm, $securePassword)
 
+        # Install netplan
+        # be sure that the template has netplan installed
 
         # Network config commands
-        $cmdIP = "netsh interface ipv4 set address name=`"$EthInt`" static $newIP $SubnetMask $Gateway"
-        $cmdDNS1 = "netsh interface ipv4 set dns name=`"$EthInt`" static $PrimaryDNS"
-        $cmdDNS2 = "netsh interface ip add dns name=`"$EthInt`" $SecondaryDNS index=2"      # optional
+       # --- 1) ştergi toate adresele de pe interfaţă ---
+        $cmdIPFlush = "echo `'$password`' | sudo -S ip addr flush dev $EthInt"
+
+        # --- 2) adaugi noul IP + mască ---
+        $cmdIPAdd = "echo `'$password`' | sudo -S ip addr add $newIP/$Mask dev $EthInt"
+
+        
+        # --- 3) setezi ruta default (gateway) ---
+        $cmdRoute = "echo `'$password`' | sudo -S ip route replace default via $Gateway dev $EthInt"
+        
+        $cmdDNS = "echo `'$password`' | sudo -S bash -c 'echo -e `"nameserver $DNS1\nnameserver $DNS2`" > /etc/resolv.conf'"
 
         # Command for computer renaming
-        $cmdHostname = "Rename-Computer -NewName $newHostname -Force -PassThru"
+        $cmdHostname = "echo `'$password`' | sudo -S hostnamectl set-hostname $newHostname"
+
+        $cmdNetworkReset = "echo `'$password`' | sudo -S systemctl restart NetworkManager"
         
         # Command for rebooting the system
-        $cmdReboot = "Restart-Computer -Force"
-
-
+        $cmdReboot = "echo `'$password`' | sudo -S reboot"
+ 
 
         # Edit the network configuration of the selected VM
         #
@@ -92,33 +124,38 @@ foreach ($vm in $vms) {
             continue
         }
 
-
         # Changing the ip, network mask and the gateway
-        $scriptResult = Invoke-VMScript -VM $vmObject -ScriptType Bat -ScriptText $cmdIP -Verbose -GuestCredential $cred
+        $scriptResult = Invoke-VMScript -VM $vmObject -ScriptType Bash -ScriptText $cmdIPFlush -Verbose -GuestCredential $cred
         $scriptOutput = $scriptResult.ScriptOutput
         Write-Host "Script output: $scriptOutput"
 
-        # Changing the  primary DNS
-        $scriptResult = Invoke-VMScript -VM $vmObject -ScriptType Bat -ScriptText $cmdDNS1 -Verbose -GuestCredential $cred
+        $scriptResult = Invoke-VMScript -VM $vmObject -ScriptType Bash -ScriptText $cmdIPAdd -Verbose -GuestCredential $cred
         $scriptOutput = $scriptResult.ScriptOutput
         Write-Host "Script output: $scriptOutput"
 
-        # Adding a secondary DNS (optional)
-        $scriptResult = Invoke-VMScript -VM $vmObject -ScriptType Bat -ScriptText $cmdDNS2 -Verbose -GuestCredential $cred
+        $scriptResult = Invoke-VMScript -VM $vmObject -ScriptType Bash -ScriptText $cmdRoute -Verbose -GuestCredential $cred
         $scriptOutput = $scriptResult.ScriptOutput
         Write-Host "Script output: $scriptOutput"
 
+        $scriptResult = Invoke-VMScript -VM $vmObject -ScriptType Bash -ScriptText $cmdDNS -Verbose -GuestCredential $cred
+        $scriptOutput = $scriptResult.ScriptOutput
+        Write-Host "Script output: $scriptOutput"
+
+
+        $scriptResult = Invoke-VMScript -VM $vmObject -ScriptType Bash -ScriptText $cmdNetworkReset -Verbose -GuestCredential $cred
+        $scriptOutput = $scriptResult.ScriptOutput
+        Write-Host "Script output: $scriptOutput"
 
         Write-Host -ForegroundColor Green "Network settings updated for VM '$VMName'."
 
 
         # Changing hostname
-        $scriptResult = Invoke-VMScript -VM $vmObject -ScriptType PowerShell -ScriptText $cmdHostname -Verbose -GuestCredential $cred
+        $scriptResult = Invoke-VMScript -VM $vmObject -ScriptType Bash -ScriptText $cmdHostname -Verbose -GuestCredential $cred
         $scriptOutput = $scriptResult.ScriptOutput
         Write-Host "Script output: $scriptOutput"
 
         # Reboot the system to make the changes persistent
-        $scriptResult = Invoke-VMScript -VM $vmObject -ScriptType PowerShell -ScriptText $cmdReboot -Verbose -GuestCredential $cred
+        $scriptResult = Invoke-VMScript -VM $vmObject -ScriptType Bash -ScriptText $cmdReboot -Verbose -GuestCredential $cred
         $scriptOutput = $scriptResult.ScriptOutput
         Write-Host "Script output: $scriptOutput"
         
